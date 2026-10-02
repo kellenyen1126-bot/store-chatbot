@@ -28,12 +28,14 @@ def table_name():
 
 
 def ensure_schema():
-    """檢查資料庫；缺少欄位就自動補上。有問題時回傳錯誤說明文字，沒問題回傳 None。"""
+    """檢查資料庫：沒有商品資料表就建立一個空的；缺少欄位就自動補上。"""
     t = table_name()
     if not t:
         with get_conn() as c:
-            names = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-        return f"找不到商品資料表（product 或 products），這個 store.db 目前的資料表有：{names}"
+            c.execute("CREATE TABLE products(id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, "
+                      "price FLOAT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, "
+                      "category VARCHAR(50), color VARCHAR(30), description VARCHAR(300))")
+        return None
     with get_conn() as c:
         cols = {r[1] for r in c.execute(f"PRAGMA table_info({t})")}
         for name, ddl in WANTED:
@@ -90,3 +92,23 @@ def get_similar(product_id, limit=4):
 def list_products():
     with get_conn() as c:
         return [_row(r) for r in c.execute(f"SELECT * FROM {table_name()} ORDER BY category, name")]
+
+
+def add_product(name, price, quantity=0, category=None, color=None, description=None):
+    with get_conn() as c:
+        c.execute(f"INSERT INTO {table_name()}(name, price, quantity, category, color, description) "
+                  "VALUES (?,?,?,?,?,?)",
+                  (name.strip(), float(price), int(quantity),
+                   (category or "").strip() or None, (color or "").strip() or None,
+                   (description or "").strip() or None))
+
+
+def update_product(product_id, quantity, price):
+    with get_conn() as c:
+        c.execute(f"UPDATE {table_name()} SET quantity = ?, price = ? WHERE id = ?",
+                  (int(quantity), float(price), product_id))
+
+
+def delete_product(product_id):
+    with get_conn() as c:
+        c.execute(f"DELETE FROM {table_name()} WHERE id = ?", (product_id,))
