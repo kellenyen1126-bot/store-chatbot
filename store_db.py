@@ -4,7 +4,7 @@ import os
 import re
 import sqlite3
 
-DB_PATH = os.getenv("STORE_DB_PATH", "store.db")
+DB_PATH = os.getenv("STORE_DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "store.db"))
 STOP = {"do", "you", "have", "in", "stock", "a", "the", "any", "got", "is", "are",
         "for", "me", "show", "i", "want", "need", "there", "some", "with", "and"}
 
@@ -13,6 +13,23 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+WANTED = [("quantity", "INTEGER NOT NULL DEFAULT 0"), ("category", "VARCHAR(50)"),
+          ("color", "VARCHAR(30)"), ("description", "VARCHAR(300)")]
+
+
+def ensure_schema():
+    """檢查資料庫；缺少欄位就自動補上。有問題時回傳錯誤說明文字，沒問題回傳 None。"""
+    with get_conn() as c:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(product)")}
+        if not cols:
+            tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+            return f"這個 store.db 裡沒有 product 資料表，目前的資料表有：{tables}"
+        for name, ddl in WANTED:
+            if name not in cols:
+                c.execute(f"ALTER TABLE product ADD COLUMN {name} {ddl}")
+    return None
 
 
 def _row(r):
