@@ -11,14 +11,13 @@ except Exception:
     pass
 
 import store_db, chatbot
-from seed_db import seed
-
-# 雲端上沒有資料庫時，自動建立示範資料
-if not os.path.exists(store_db.DB_PATH):
-    seed()
 
 st.set_page_config(page_title="My Online Store", page_icon="🛍️", layout="wide")
 st.title("🛍️ My Online Store")
+
+if not os.path.exists(store_db.DB_PATH):
+    st.error("找不到 store.db，請把商店的資料庫檔案上傳到 GitHub 專案最外層。")
+    st.stop()
 
 shop, chat = st.columns([3, 2], gap="large")
 
@@ -27,7 +26,7 @@ with shop:
     for p in store_db.list_products():
         with st.container(border=True):
             a, b = st.columns([3, 1])
-            a.markdown(f"**{p['name']}**  \n{p['description']}")
+            a.markdown(f"**{p['name']}**  \n{p['description'] or ''}")
             b.markdown(f"**${p['price']:.2f}**")
             b.caption("有現貨" if p["in_stock"] else "缺貨")
 
