@@ -1,4 +1,4 @@
-"""資料庫層：所有商品資料都從這裡讀取。
+"""資料庫層：讀取商店的 store.db（資料表名稱 product）。
 若你的商店已有資料庫（MySQL / PostgreSQL 等），只需改 get_conn() 與 SQL 欄位名稱。"""
 import os
 import re
@@ -23,7 +23,7 @@ def _row(r):
 
 def search_products(query="", category=None, color=None, max_price=None,
                     in_stock_only=False, limit=6):
-    sql, params = "SELECT * FROM products WHERE 1=1", []
+    sql, params = "SELECT * FROM product WHERE 1=1", []
     tokens = [t for t in re.findall(r"\w+", (query or "").lower()) if t not in STOP]
     for t in tokens:
         sql += " AND (lower(name) LIKE ? OR lower(category) LIKE ? OR lower(color) LIKE ? OR lower(description) LIKE ?)"
@@ -43,7 +43,7 @@ def search_products(query="", category=None, color=None, max_price=None,
 
 def get_product(product_id):
     with get_conn() as c:
-        r = c.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+        r = c.execute("SELECT * FROM product WHERE id = ?", (product_id,)).fetchone()
     return _row(r) if r else None
 
 
@@ -52,13 +52,14 @@ def get_similar(product_id, limit=4):
     p = get_product(product_id)
     if not p:
         return []
+    sql, params = "SELECT * FROM product WHERE id != ? AND quantity > 0", [product_id]
+    if p["category"]:
+        sql += " AND category = ?"; params.append(p["category"])
+    sql += " ORDER BY ABS(price - ?) LIMIT ?"; params += [p["price"], limit]
     with get_conn() as c:
-        rows = c.execute(
-            "SELECT * FROM products WHERE category = ? AND id != ? AND quantity > 0 "
-            "ORDER BY ABS(price - ?) LIMIT ?", (p["category"], product_id, p["price"], limit))
-        return [_row(r) for r in rows]
+        return [_row(r) for r in c.execute(sql, params)]
 
 
 def list_products():
     with get_conn() as c:
-        return [_row(r) for r in c.execute("SELECT * FROM products ORDER BY category, name")]
+        return [_row(r) for r in c.execute("SELECT * FROM product ORDER BY category, name")]
