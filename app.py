@@ -1,4 +1,4 @@
-    import os
+import os
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -47,6 +47,3 @@ with chat:
                     reply = f"發生錯誤：{e}"
             st.write(reply)
         st.session_state.history.append({"role": "assistant", "content": reply})
-
-    
-
