@@ -4,8 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 try:  # Streamlit Cloud 部署時從 secrets 讀取
-    if "XAI_API_KEY" in st.secrets:
-        os.environ["XAI_API_KEY"] = st.secrets["XAI_API_KEY"]
+    for k in ("GROQ_API_KEY", "GROQ_MODEL"):
+        if k in st.secrets:
+            os.environ[k] = st.secrets[k]
 except Exception:
     pass
 
