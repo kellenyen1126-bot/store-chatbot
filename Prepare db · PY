@@ -1,0 +1,30 @@
+"""在自己電腦上執行一次：幫商店的 store.db 補上庫存等欄位，並填入真實資料。
+用法：python prepare_db.py store.db   （直接按 Enter 代表不修改）"""
+import sqlite3
+import sys
+
+path = sys.argv[1] if len(sys.argv) > 1 else "store.db"
+conn = sqlite3.connect(path)
+cols = {r[1] for r in conn.execute("PRAGMA table_info(product)")}
+if not cols:
+    sys.exit("找不到 product 資料表，請確認這是商店用的 store.db")
+
+for name, ddl in [("quantity", "INTEGER NOT NULL DEFAULT 0"), ("category", "VARCHAR(50)"),
+                  ("color", "VARCHAR(30)"), ("description", "VARCHAR(300)")]:
+    if name not in cols:
+        conn.execute(f"ALTER TABLE product ADD COLUMN {name} {ddl}")
+conn.commit()
+
+for pid, name, price, qty, cat, color, desc in conn.execute(
+        "SELECT id, name, price, quantity, category, color, description FROM product ORDER BY id").fetchall():
+    print(f"\n[{pid}] {name}  價格 {price}  庫存 {qty}  類別 {cat}  顏色 {color}")
+    q = input("  庫存數量: ").strip()
+    if q.isdigit():
+        conn.execute("UPDATE product SET quantity=? WHERE id=?", (int(q), pid))
+    for field, label in (("category", "類別(英文，如 shoes)"), ("color", "顏色(英文，如 black)"),
+                         ("description", "說明(英文一句話)")):
+        v = input(f"  {label}: ").strip()
+        if v:
+            conn.execute(f"UPDATE product SET {field}=? WHERE id=?", (v, pid))
+    conn.commit()
+print("\n完成")
