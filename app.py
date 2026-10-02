@@ -30,13 +30,16 @@ with shop:
             b.markdown(f"**${p['price']:.2f}**")
             b.caption("有現貨" if p["in_stock"] else "缺貨")
 
+# 輸入框必須放在欄位外面，才會固定在整個頁面最下方
+q = st.chat_input("問問商品、價格、庫存…")
+
 with chat:
     st.subheader("💬 AI 購物助理")
     if "history" not in st.session_state:
         st.session_state.history = []
     for m in st.session_state.history:
         st.chat_message(m["role"]).write(m["content"])
-    if q := st.chat_input("問問商品、價格、庫存…"):
+    if q:
         st.session_state.history.append({"role": "user", "content": q})
         st.chat_message("user").write(q)
         with st.chat_message("assistant"):
