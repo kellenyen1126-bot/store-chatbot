@@ -1,4 +1,4 @@
-    """AI 客服：Grok 透過 tool calling 查詢資料庫，再用真實資料回答。"""
+"""AI 客服：Grok 透過 tool calling 查詢資料庫，再用真實資料回答。"""
 import json
 import os
 from openai import OpenAI
@@ -59,5 +59,3 @@ def answer(history):
             msgs.append({"role": "tool", "tool_call_id": tc.id,
                          "content": json.dumps(result, ensure_ascii=False)})
     return "抱歉，我暫時無法完成查詢，請再試一次。"
-
-    
