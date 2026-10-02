@@ -1,4 +1,3 @@
 .env
 .streamlit/secrets.toml
-store.db
 __pycache__/
