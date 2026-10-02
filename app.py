@@ -19,6 +19,11 @@ if not os.path.exists(store_db.DB_PATH):
     st.error("找不到 store.db，請把商店的資料庫檔案上傳到 GitHub 專案最外層。")
     st.stop()
 
+problem = store_db.ensure_schema()
+if problem:
+    st.error(problem)
+    st.stop()
+
 shop, chat = st.columns([3, 2], gap="large")
 
 with shop:
