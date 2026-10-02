@@ -1,10 +1,10 @@
-"""AI 客服：Grok 透過 tool calling 查詢資料庫，再用真實資料回答。"""
+"""AI 客服：Groq 上的模型透過 tool calling 查詢資料庫，再用真實資料回答。"""
 import json
 import os
 from openai import OpenAI
 import store_db
 
-MODEL = os.getenv("XAI_MODEL", "grok-3-mini")
+MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 SYSTEM = (
     "You are a friendly shop assistant for an online store. "
     "ALWAYS call the tools to get product data; never guess or invent prices, stock or products. "
@@ -30,10 +30,10 @@ TOOLS = [
 
 
 def _client():
-    key = os.getenv("XAI_API_KEY")
+    key = os.getenv("GROQ_API_KEY")
     if not key:
-        raise RuntimeError("找不到 XAI_API_KEY（請放在 .env 或 .streamlit/secrets.toml）")
-    return OpenAI(api_key=key, base_url="https://api.x.ai/v1")
+        raise RuntimeError("找不到 GROQ_API_KEY（請放在 .env 或 .streamlit/secrets.toml）")
+    return OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
 
 
 def _run_tool(name, args):
