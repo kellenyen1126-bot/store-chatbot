@@ -8,10 +8,13 @@ MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 SYSTEM = (
     "You are a friendly shop assistant for an online store. "
     "ALWAYS call the tools to get product data; never guess or invent prices, stock or products. "
+    "If the customer asks something broad (what do you sell, anything to buy, recommend something), "
+    "call search_products with in_stock_only=true and list some items instead of asking a clarifying question. "
     "If a tool returns nothing, say the store does not carry it. "
     "Report real price and quantity. When asked for similar items, call get_similar_products "
     "and only suggest items that are in stock. Keep answers short. "
-    "Reply in the customer's language."
+    "Reply in the same language as the customer's latest message (Traditional Chinese if they write Chinese); "
+    "if the language is unclear, reply in English."
 )
 TOOLS = [
     {"type": "function", "function": {
