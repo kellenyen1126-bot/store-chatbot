@@ -23,18 +23,39 @@ if problem:
 
 
 # ---------- Cart (button callbacks run before the page redraws) ----------
+def _to_int(v, default, lo, hi):
+    """Read a number typed into a text box; fall back to default and keep it within lo..hi."""
+    try:
+        n = int(str(v).strip())
+    except ValueError:
+        n = default
+    return max(lo, min(hi, n))
+
+
 def add_to_cart(pid, stock):
     """Add the quantity chosen on the product card (never more than the stock)."""
     cart = st.session_state.setdefault("cart", {})
-    n = int(st.session_state.get(f"qty{pid}", 1))
-    cart[pid] = min(cart.get(pid, 0) + max(1, n), stock)
+    n = _to_int(st.session_state.get(f"qty{pid}"), 1, 1, stock)
+    cart[pid] = min(cart.get(pid, 0) + n, stock)
+
+
+def step_qty(key, delta, hi):
+    """The - / + buttons next to the quantity box on a product card."""
+    n = _to_int(st.session_state.get(key), 1, 1, hi)
+    st.session_state[key] = str(max(1, min(hi, n + delta)))
+
+
+def step_cart(pid, delta, stock):
+    """The - / + buttons next to the quantity box in the cart."""
+    cart = st.session_state.setdefault("cart", {})
+    cart[pid] = max(1, min(stock, cart.get(pid, 1) + delta))
+    st.session_state[f"cq{pid}"] = str(cart[pid])
 
 
 def set_cart_qty(pid, stock):
-    """Called when the customer edits the quantity box in the cart."""
+    """Called when the customer types a new quantity in the cart."""
     cart = st.session_state.setdefault("cart", {})
-    n = int(st.session_state.get(f"cq{pid}", 1))
-    cart[pid] = max(1, min(n, stock))
+    cart[pid] = _to_int(st.session_state.get(f"cq{pid}"), cart.get(pid, 1), 1, stock)
 
 
 def remove_from_cart(pid):
@@ -202,12 +223,13 @@ with shop:
             st.markdown("**🛒 Cart**")
             total = 0.0
             for p, n in lines:
-                st.session_state[f"cq{p['id']}"] = n  # keep the box in sync with the cart
-                c1, c2, c3, c4 = st.columns([4, 3, 2, 1])
+                st.session_state[f"cq{p['id']}"] = str(n)  # keep the box in sync with the cart
+                c1, cm, cb, cp, c3, c4 = st.columns([4, 1, 1.6, 1, 2, 1])
                 c1.write(f"{p['name']}  \n${p['price']:.2f} each")
-                c2.number_input("Quantity", min_value=1, max_value=int(p["quantity"]), step=1,
-                                key=f"cq{p['id']}", label_visibility="collapsed",
-                                on_change=set_cart_qty, args=(p["id"], p["quantity"]))
+                cm.button("−", key=f"cm{p['id']}", on_click=step_cart, args=(p["id"], -1, p["quantity"]))
+                cb.text_input("Quantity", key=f"cq{p['id']}", label_visibility="collapsed",
+                              on_change=set_cart_qty, args=(p["id"], p["quantity"]))
+                cp.button("+", key=f"cp{p['id']}", on_click=step_cart, args=(p["id"], 1, p["quantity"]))
                 c3.write(f"${p['price'] * n:.2f}")
                 c4.button("✕", key=f"rm{p['id']}", on_click=remove_from_cart, args=(p["id"],))
                 total += p["price"] * n
@@ -232,11 +254,14 @@ with shop:
             if p["in_stock"]:
                 qkey = f"qty{p['id']}"
                 maxq = int(p["quantity"])
-                if st.session_state.get(qkey, 1) > maxq:
-                    st.session_state[qkey] = maxq
-                b.number_input("Qty", min_value=1, max_value=maxq, step=1, key=qkey)
-            b.button("Add to cart", key=f"add{p['id']}", disabled=not p["in_stock"],
-                     on_click=add_to_cart, args=(p["id"], p["quantity"]))
+                st.session_state[qkey] = str(_to_int(st.session_state.get(qkey), 1, 1, maxq))
+                cm, cb, cp, ca, _sp = st.columns([1, 1.5, 1, 3, 2])
+                cm.button("−", key=f"m{p['id']}", on_click=step_qty, args=(qkey, -1, maxq))
+                cb.text_input("Qty", key=qkey, label_visibility="collapsed")
+                cp.button("+", key=f"p{p['id']}b", on_click=step_qty, args=(qkey, 1, maxq))
+                ca.button("Add to cart", key=f"add{p['id']}", on_click=add_to_cart, args=(p["id"], maxq))
+            else:
+                st.button("Add to cart", key=f"add{p['id']}", disabled=True)
             if is_admin:
                 with st.expander("Edit / Delete"):
                     nq = st.number_input("Stock", min_value=0, value=int(p["quantity"]), key=f"q{p['id']}")
