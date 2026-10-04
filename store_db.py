@@ -11,7 +11,9 @@ DB_PATH = os.getenv("STORE_DB_PATH", os.path.join(os.path.dirname(os.path.abspat
 STOP = {"do", "you", "have", "in", "stock", "a", "the", "any", "got", "is", "are",
         "for", "me", "show", "i", "want", "need", "there", "some", "with", "and"}
 WANTED = [("quantity", "INTEGER NOT NULL DEFAULT 0"), ("category", "VARCHAR(50)"),
-          ("color", "VARCHAR(30)"), ("description", "VARCHAR(300)")]
+          ("color", "VARCHAR(30)"), ("description", "VARCHAR(300)"), ("image", "BLOB")]
+# 查詢給 AI 用的欄位（不含圖片，圖片是二進位資料，不能傳給 AI）
+COLS = "id, name, price, quantity, category, color, description"
 
 
 def get_conn():
@@ -44,7 +46,7 @@ def ensure_schema():
         with get_conn() as c:
             c.execute("CREATE TABLE products(id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, "
                       "price FLOAT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, "
-                      "category VARCHAR(50), color VARCHAR(30), description VARCHAR(300))")
+                      "category VARCHAR(50), color VARCHAR(30), description VARCHAR(300), image BLOB)")
         return None
     with get_conn() as c:
         cols = {r[1] for r in c.execute(f"PRAGMA table_info({t})")}
@@ -62,7 +64,7 @@ def _row(r):
 
 def search_products(query="", category=None, color=None, max_price=None,
                     in_stock_only=False, limit=6):
-    sql, params = f"SELECT * FROM {table_name()} WHERE 1=1", []
+    sql, params = f"SELECT {COLS} FROM {table_name()} WHERE 1=1", []
     tokens = [t for t in re.findall(r"\w+", (query or "").lower()) if t not in STOP]
     for t in tokens:
         sql += " AND (lower(name) LIKE ? OR lower(category) LIKE ? OR lower(color) LIKE ? OR lower(description) LIKE ?)"
@@ -82,7 +84,7 @@ def search_products(query="", category=None, color=None, max_price=None,
 
 def get_product(product_id):
     with get_conn() as c:
-        r = c.execute(f"SELECT * FROM {table_name()} WHERE id = ?", (product_id,)).fetchone()
+        r = c.execute(f"SELECT {COLS} FROM {table_name()} WHERE id = ?", (product_id,)).fetchone()
     return _row(r) if r else None
 
 
@@ -91,7 +93,7 @@ def get_similar(product_id, limit=4):
     p = get_product(product_id)
     if not p:
         return []
-    sql, params = f"SELECT * FROM {table_name()} WHERE id != ? AND quantity > 0", [product_id]
+    sql, params = f"SELECT {COLS} FROM {table_name()} WHERE id != ? AND quantity > 0", [product_id]
     if p["category"]:
         sql += " AND category = ?"; params.append(p["category"])
     sql += " ORDER BY ABS(price - ?) LIMIT ?"; params += [p["price"], limit]
@@ -101,16 +103,40 @@ def get_similar(product_id, limit=4):
 
 def list_products():
     with get_conn() as c:
-        return [_row(r) for r in c.execute(f"SELECT * FROM {table_name()} ORDER BY category, name")]
+        return [_row(r) for r in c.execute(f"SELECT {COLS}, image FROM {table_name()} ORDER BY category, name")]
 
 
-def add_product(name, price, quantity=0, category=None, color=None, description=None):
+def process_image(raw):
+    """把上傳的圖片縮小、轉成 JPEG（最長邊 600px），回傳 bytes。失敗時丟出例外。"""
+    import io
+    from PIL import Image
+    img = Image.open(io.BytesIO(raw))
+    if img.mode in ("RGBA", "LA", "P"):
+        img = img.convert("RGBA")
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[-1])
+        img = bg
+    else:
+        img = img.convert("RGB")
+    img.thumbnail((600, 600))
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=85, optimize=True)
+    return out.getvalue()
+
+
+def add_product(name, price, quantity=0, category=None, color=None, description=None, image=None):
     with get_conn() as c:
-        c.execute(f"INSERT INTO {table_name()}(name, price, quantity, category, color, description) "
-                  "VALUES (?,?,?,?,?,?)",
+        c.execute(f"INSERT INTO {table_name()}(name, price, quantity, category, color, description, image) "
+                  "VALUES (?,?,?,?,?,?,?)",
                   (name.strip(), float(price), int(quantity),
                    (category or "").strip() or None, (color or "").strip() or None,
-                   (description or "").strip() or None))
+                   (description or "").strip() or None, image))
+
+
+def set_image(product_id, image):
+    """image 為 bytes 代表更換圖片，None 代表移除圖片。"""
+    with get_conn() as c:
+        c.execute(f"UPDATE {table_name()} SET image = ? WHERE id = ?", (image, product_id))
 
 
 def update_product(product_id, quantity, price):
