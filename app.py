@@ -34,34 +34,89 @@ def remove_from_cart(pid):
 
 
 def do_checkout():
-    ok, msg = store_db.checkout(st.session_state.get("cart", {}))
+    user = st.session_state.get("user")
+    if not user:
+        st.session_state.notice = (False, "請先在左側 Account 登入，才能結帳")
+        return
+    ok, msg = store_db.checkout(st.session_state.get("cart", {}), user["name"])
     st.session_state.notice = (ok, msg)
     if ok:
         st.session_state.cart = {}
 
 
-# ---------- 管理員登入（側邊欄） ----------
+# ---------- 帳號（側邊欄） ----------
+ss = st.session_state
+ss.setdefault("user", None)          # {"name": ..., "admin": bool}
+ss.setdefault("auth_view", "login")  # "login" 或 "register"
 admin_pw = os.getenv("ADMIN_PASSWORD")
-is_admin = False
+
 with st.sidebar:
-    st.header("🔐 管理員")
-    if not admin_pw:
-        st.caption("尚未設定 ADMIN_PASSWORD，管理功能已關閉。")
+    st.header("Account")
+    if ss.user:
+        st.success(f"Logged in as {ss.user['name']}" + (" (admin)" if ss.user["admin"] else ""))
+        if st.button("Log Out"):
+            ss.user = None
+            ss.cart = {}
+            st.rerun()
+    elif ss.auth_view == "login":
+        st.subheader("Log In")
+        with st.form("login_form"):
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            do_login = st.form_submit_button("Log In")
+            go_register = st.form_submit_button("Create a customer account")
+        if go_register:
+            ss.auth_view = "register"
+            st.rerun()
+        if do_login:
+            if u.strip().lower() == "admin" and admin_pw and hmac.compare_digest(p, admin_pw):
+                ss.user = {"name": "admin", "admin": True}
+                st.rerun()
+            name = None if u.strip().lower() == "admin" else store_db.verify_user(u, p)
+            if name:
+                ss.user = {"name": name, "admin": False}
+                st.rerun()
+            st.error("Username 或 Password 錯誤")
     else:
-        pw = st.text_input("密碼", type="password")
-        is_admin = bool(pw) and hmac.compare_digest(pw, admin_pw)
-        if pw and not is_admin:
-            st.error("密碼錯誤")
+        st.subheader("Create a customer account")
+        with st.form("register_form"):
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            p2 = st.text_input("Confirm password", type="password")
+            do_create = st.form_submit_button("Create account")
+            go_login = st.form_submit_button("Back to Log In")
+        if go_login:
+            ss.auth_view = "login"
+            st.rerun()
+        if do_create:
+            if p != p2:
+                st.error("兩次輸入的密碼不一致")
+            else:
+                ok, msg, name = store_db.create_user(u, p)
+                if ok:
+                    ss.user = {"name": name, "admin": False}
+                    ss.auth_view = "login"
+                    st.rerun()
+                st.error(msg)
+
+    is_admin = bool(ss.user and ss.user["admin"])
     if is_admin:
-        st.success("已登入")
         with open(store_db.DB_PATH, "rb") as f:
             st.download_button("⬇️ 下載 store.db 備份", f.read(), file_name="store.db")
-        st.caption("雲端重啟後新增的商品與訂單會消失。請下載備份，再上傳到 GitHub 覆蓋舊的 store.db。")
-        with st.expander("📦 訂單紀錄"):
+        st.caption("雲端重啟後新增的商品、帳號與訂單會消失。請下載備份，再上傳到 GitHub 覆蓋舊的 store.db。")
+        with st.expander("📦 所有訂單"):
             orders = store_db.list_orders()
             if not orders:
                 st.caption("還沒有訂單")
             for o in orders:
+                st.write(f"#{o['id']}　{o['username'] or '-'}　{o['created_at']}　${o['total']:.2f}")
+                st.caption(o["items"])
+    elif ss.user:
+        with st.expander("📦 My orders"):
+            mine = store_db.list_orders(username=ss.user["name"])
+            if not mine:
+                st.caption("還沒有訂單")
+            for o in mine:
                 st.write(f"#{o['id']}　{o['created_at']}　${o['total']:.2f}")
                 st.caption(o["items"])
 
@@ -111,6 +166,8 @@ with shop:
                 c3.button("✕", key=f"rm{p['id']}", on_click=remove_from_cart, args=(p["id"],))
                 total += p["price"] * n
             st.markdown(f"**合計：${total:.2f}**")
+            if not ss.user:
+                st.caption("結帳前請先在左側 Account 登入")
             st.button("結帳", type="primary", on_click=do_checkout)
 
     # 商品列表
