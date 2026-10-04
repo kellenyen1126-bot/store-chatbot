@@ -159,6 +159,19 @@ with shop:
                             store_db.add_product(name, price, qty, category, color, desc, img)
                             st.success(f"已新增：{name}")
 
+    if is_admin:
+        with st.expander("📥 批次匯入商品（CSV）"):
+            st.caption("欄位：name,price,quantity,category,color,description。名稱已存在的商品會略過。")
+            csv_file = st.file_uploader("選擇 CSV 檔", type=["csv"], key="csv_import")
+            if csv_file and st.button("開始匯入"):
+                try:
+                    n_add, n_skip, errs = store_db.import_products_csv(csv_file.getvalue())
+                    st.success(f"新增 {n_add} 件，略過 {n_skip} 件（名稱重複）")
+                    for e in errs:
+                        st.error(e)
+                except Exception:
+                    st.error("無法讀取這個檔案，請確認是 UTF-8 編碼的 CSV")
+
     products = store_db.list_products()
     by_id = {p["id"]: p for p in products}
 
