@@ -29,6 +29,9 @@ def table_name():
 
 def ensure_schema():
     """檢查資料庫：沒有商品資料表就建立一個空的；缺少欄位就自動補上。"""
+    with get_conn() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS shop_orders(id INTEGER PRIMARY KEY, "
+                  "created_at TEXT, total REAL, items TEXT)")
     t = table_name()
     if not t:
         with get_conn() as c:
@@ -112,3 +115,43 @@ def update_product(product_id, quantity, price):
 def delete_product(product_id):
     with get_conn() as c:
         c.execute(f"DELETE FROM {table_name()} WHERE id = ?", (product_id,))
+
+
+def checkout(cart):
+    """cart: {商品id: 數量}。庫存夠才成立，成立後扣庫存並記錄訂單。回傳 (成功與否, 訊息)。"""
+    if not cart:
+        return False, "購物車是空的"
+    t = table_name()
+    conn = sqlite3.connect(DB_PATH, isolation_level=None)  # 手動控制交易
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        total, lines = 0.0, []
+        for pid, qty in cart.items():
+            r = conn.execute(f"SELECT name, price, quantity FROM {t} WHERE id = ?", (pid,)).fetchone()
+            if not r:
+                conn.execute("ROLLBACK")
+                return False, "有商品已下架，請重新整理頁面"
+            if r["quantity"] < qty:
+                conn.execute("ROLLBACK")
+                return False, f"{r['name']} 庫存不足（目前剩 {r['quantity']}）"
+            total += r["price"] * qty
+            lines.append(f"{r['name']} x{qty}")
+        for pid, qty in cart.items():
+            conn.execute(f"UPDATE {t} SET quantity = quantity - ? WHERE id = ?", (qty, pid))
+        conn.execute("INSERT INTO shop_orders(created_at, total, items) VALUES (datetime('now'), ?, ?)",
+                     (total, "; ".join(lines)))
+        conn.execute("COMMIT")
+        return True, f"訂單完成！合計 ${total:.2f}（{'、'.join(lines)}）"
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
+def list_orders(limit=30):
+    with get_conn() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM shop_orders ORDER BY id DESC LIMIT ?", (limit,))]
