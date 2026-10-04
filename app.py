@@ -44,6 +44,18 @@ def do_checkout():
         st.session_state.cart = {}
 
 
+def load_image(uploaded):
+    """把上傳的檔案處理成可存入資料庫的圖片。回傳 (圖片bytes或None, 錯誤訊息或None)。"""
+    if uploaded is None:
+        return None, None
+    if uploaded.size > 5 * 1024 * 1024:
+        return None, "圖片太大，請選 5MB 以下的檔案"
+    try:
+        return store_db.process_image(uploaded.getvalue()), None
+    except Exception:
+        return None, "這個檔案無法當作圖片讀取，請換一張"
+
+
 # ---------- 帳號（側邊欄） ----------
 ss = st.session_state
 ss.setdefault("user", None)          # {"name": ..., "admin": bool}
@@ -135,12 +147,17 @@ with shop:
                 category = c1.text_input("類別（英文，如 shoes）")
                 color = c2.text_input("顏色（英文，如 black）")
                 desc = st.text_input("說明（英文一句話）")
+                photo = st.file_uploader("商品圖片（可不傳）", type=["png", "jpg", "jpeg", "webp"])
                 if st.form_submit_button("新增"):
                     if not name.strip():
                         st.error("請輸入商品名稱")
                     else:
-                        store_db.add_product(name, price, qty, category, color, desc)
-                        st.success(f"已新增：{name}")
+                        img, err = load_image(photo)
+                        if err:
+                            st.error(err)
+                        else:
+                            store_db.add_product(name, price, qty, category, color, desc, img)
+                            st.success(f"已新增：{name}")
 
     products = store_db.list_products()
     by_id = {p["id"]: p for p in products}
@@ -175,7 +192,11 @@ with shop:
         st.info("目前沒有商品。" + ("請用上方「新增商品」加入。" if is_admin else ""))
     for p in products:
         with st.container(border=True):
-            a, b = st.columns([5, 2])
+            im, a, b = st.columns([2, 4, 2])
+            if p["image"]:
+                im.image(p["image"], width=110)
+            else:
+                im.markdown("<div style='font-size:48px;text-align:center'>✏️</div>", unsafe_allow_html=True)
             a.markdown(f"**{p['name']}**  \n{p['description'] or ''}")
             b.markdown(f"**${p['price']:.2f}**")
             b.caption(f"有現貨（{p['quantity']}）" if p["in_stock"] else "缺貨")
@@ -186,10 +207,20 @@ with shop:
                     nq = st.number_input("庫存", min_value=0, value=int(p["quantity"]), key=f"q{p['id']}")
                     npr = st.number_input("價格", min_value=0.0, value=float(p["price"]),
                                           step=0.5, key=f"p{p['id']}")
+                    newpic = st.file_uploader("更換圖片", type=["png", "jpg", "jpeg", "webp"], key=f"img{p['id']}")
+                    rmpic = st.checkbox("移除圖片", key=f"rmimg{p['id']}") if p["image"] else False
                     e1, e2 = st.columns(2)
                     if e1.button("儲存", key=f"s{p['id']}"):
-                        store_db.update_product(p["id"], nq, npr)
-                        st.rerun()
+                        img, err = load_image(newpic)
+                        if err:
+                            st.error(err)
+                        else:
+                            store_db.update_product(p["id"], nq, npr)
+                            if img:
+                                store_db.set_image(p["id"], img)
+                            elif rmpic:
+                                store_db.set_image(p["id"], None)
+                            st.rerun()
                     if e2.button("刪除", key=f"d{p['id']}"):
                         store_db.delete_product(p["id"])
                         st.rerun()
