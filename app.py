@@ -4,7 +4,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
-try:  # Streamlit Cloud 部署時從 secrets 讀取
+try:  # On Streamlit Cloud, read settings from Secrets
     for k in ("GROQ_API_KEY", "GROQ_MODEL", "ADMIN_PASSWORD"):
         if k in st.secrets:
             os.environ[k] = st.secrets[k]
@@ -22,7 +22,7 @@ if problem:
     st.stop()
 
 
-# ---------- 購物車（按鈕的 callback，會在畫面重畫前先執行） ----------
+# ---------- Cart (button callbacks run before the page redraws) ----------
 def add_to_cart(pid, stock):
     cart = st.session_state.setdefault("cart", {})
     if cart.get(pid, 0) < stock:
@@ -36,7 +36,7 @@ def remove_from_cart(pid):
 def do_checkout():
     user = st.session_state.get("user")
     if not user:
-        st.session_state.notice = (False, "請先在左側 Account 登入，才能結帳")
+        st.session_state.notice = (False, "Please log in (Account, left side) before checking out")
         return
     ok, msg = store_db.checkout(st.session_state.get("cart", {}), user["name"])
     st.session_state.notice = (ok, msg)
@@ -45,21 +45,21 @@ def do_checkout():
 
 
 def load_image(uploaded):
-    """把上傳的檔案處理成可存入資料庫的圖片。回傳 (圖片bytes或None, 錯誤訊息或None)。"""
+    """Turn an uploaded file into image bytes for the database. Returns (bytes or None, error or None)."""
     if uploaded is None:
         return None, None
     if uploaded.size > 5 * 1024 * 1024:
-        return None, "圖片太大，請選 5MB 以下的檔案"
+        return None, "Image is too large. Please choose a file under 5MB"
     try:
         return store_db.process_image(uploaded.getvalue()), None
     except Exception:
-        return None, "這個檔案無法當作圖片讀取，請換一張"
+        return None, "This file could not be read as an image. Please try another one"
 
 
-# ---------- 帳號（側邊欄） ----------
+# ---------- Account (sidebar) ----------
 ss = st.session_state
 ss.setdefault("user", None)          # {"name": ..., "admin": bool}
-ss.setdefault("auth_view", "login")  # "login" 或 "register"
+ss.setdefault("auth_view", "login")  # "login" or "register"
 admin_pw = os.getenv("ADMIN_PASSWORD")
 
 with st.sidebar:
@@ -88,7 +88,7 @@ with st.sidebar:
             if name:
                 ss.user = {"name": name, "admin": False}
                 st.rerun()
-            st.error("Username 或 Password 錯誤")
+            st.error("Incorrect username or password")
     else:
         st.subheader("Create a customer account")
         with st.form("register_form"):
@@ -102,7 +102,7 @@ with st.sidebar:
             st.rerun()
         if do_create:
             if p != p2:
-                st.error("兩次輸入的密碼不一致")
+                st.error("Passwords do not match")
             else:
                 ok, msg, name = store_db.create_user(u, p)
                 if ok:
@@ -114,66 +114,66 @@ with st.sidebar:
     is_admin = bool(ss.user and ss.user["admin"])
     if is_admin:
         with open(store_db.DB_PATH, "rb") as f:
-            st.download_button("⬇️ 下載 store.db 備份", f.read(), file_name="store.db")
-        st.caption("雲端重啟後新增的商品、帳號與訂單會消失。請下載備份，再上傳到 GitHub 覆蓋舊的 store.db。")
-        with st.expander("📦 所有訂單"):
+            st.download_button("⬇️ Download store.db backup", f.read(), file_name="store.db")
+        st.caption("Products, accounts and orders added in the app are lost when the cloud app restarts. Download a backup and upload it to GitHub to replace the old store.db.")
+        with st.expander("📦 All orders"):
             orders = store_db.list_orders()
             if not orders:
-                st.caption("還沒有訂單")
+                st.caption("No orders yet")
             for o in orders:
-                st.write(f"#{o['id']}　{o['username'] or '-'}　{o['created_at']}　${o['total']:.2f}")
+                st.write(f"#{o['id']}  |  {o['username'] or '-'}  |  {o['created_at']}  |  ${o['total']:.2f}")
                 st.caption(o["items"])
     elif ss.user:
         with st.expander("📦 My orders"):
             mine = store_db.list_orders(username=ss.user["name"])
             if not mine:
-                st.caption("還沒有訂單")
+                st.caption("No orders yet")
             for o in mine:
-                st.write(f"#{o['id']}　{o['created_at']}　${o['total']:.2f}")
+                st.write(f"#{o['id']}  |  {o['created_at']}  |  ${o['total']:.2f}")
                 st.caption(o["items"])
 
 shop, chat = st.columns([3, 2], gap="large")
 
 with shop:
-    st.subheader("商品")
+    st.subheader("Products")
 
     if is_admin:
-        with st.expander("➕ 新增商品"):
+        with st.expander("➕ Add product"):
             with st.form("add_product", clear_on_submit=True):
-                name = st.text_input("名稱（英文）")
+                name = st.text_input("Name")
                 c1, c2 = st.columns(2)
-                price = c1.number_input("價格", min_value=0.0, step=0.5)
-                qty = c2.number_input("庫存數量", min_value=0, step=1)
-                category = c1.text_input("類別（英文，如 shoes）")
-                color = c2.text_input("顏色（英文，如 black）")
-                desc = st.text_input("說明（英文一句話）")
-                photo = st.file_uploader("商品圖片（可不傳）", type=["png", "jpg", "jpeg", "webp"])
-                if st.form_submit_button("新增"):
+                price = c1.number_input("Price", min_value=0.0, step=0.5)
+                qty = c2.number_input("Stock quantity", min_value=0, step=1)
+                category = c1.text_input("Category (e.g. pen)")
+                color = c2.text_input("Color (e.g. black)")
+                desc = st.text_input("Description (one short sentence)")
+                photo = st.file_uploader("Product image (optional)", type=["png", "jpg", "jpeg", "webp"])
+                if st.form_submit_button("Add"):
                     if not name.strip():
-                        st.error("請輸入商品名稱")
+                        st.error("Please enter a product name")
                     else:
                         img, err = load_image(photo)
                         if err:
                             st.error(err)
                         else:
                             store_db.add_product(name, price, qty, category, color, desc, img)
-                            st.success(f"已新增：{name}")
+                            st.success(f"Added: {name}")
 
     if is_admin:
-        with st.expander("📥 批次匯入商品（貼上 CSV 文字）"):
-            st.caption("第一行是欄位名稱：name,price,quantity,category,color,description。名稱已存在的商品會略過。")
-            csv_text = st.text_area("貼上 CSV 文字", height=200, key="csv_text")
-            if st.button("開始匯入"):
+        with st.expander("📥 Bulk import products (paste CSV text)"):
+            st.caption("First line is the header: name,price,quantity,category,color,description. Products whose name already exists are skipped.")
+            csv_text = st.text_area("Paste CSV text", height=200, key="csv_text")
+            if st.button("Start import"):
                 if not csv_text.strip():
-                    st.error("請先貼上 CSV 文字")
+                    st.error("Please paste the CSV text first")
                 else:
                     try:
                         n_add, n_skip, errs = store_db.import_products_csv(csv_text.encode("utf-8"))
-                        st.success(f"新增 {n_add} 件，略過 {n_skip} 件（名稱重複）")
+                        st.success(f"Added {n_add}, skipped {n_skip} (duplicate names)")
                         for e in errs:
                             st.error(e)
                     except Exception:
-                        st.error("無法讀取這段文字，請確認格式正確")
+                        st.error("Could not read this text. Please check the format")
 
     products = store_db.list_products()
     by_id = {p["id"]: p for p in products}
@@ -182,7 +182,7 @@ with shop:
         ok, msg = st.session_state.pop("notice")
         (st.success if ok else st.error)(msg)
 
-    # 購物車
+    # Cart
     lines = []
     for pid, n in st.session_state.get("cart", {}).items():
         p = by_id.get(pid)
@@ -190,7 +190,7 @@ with shop:
             lines.append((p, min(n, p["quantity"])))
     if lines:
         with st.container(border=True):
-            st.markdown("**🛒 購物車**")
+            st.markdown("**🛒 Cart**")
             total = 0.0
             for p, n in lines:
                 c1, c2, c3 = st.columns([5, 2, 1])
@@ -198,14 +198,14 @@ with shop:
                 c2.write(f"${p['price'] * n:.2f}")
                 c3.button("✕", key=f"rm{p['id']}", on_click=remove_from_cart, args=(p["id"],))
                 total += p["price"] * n
-            st.markdown(f"**合計：${total:.2f}**")
+            st.markdown(f"**Total: ${total:.2f}**")
             if not ss.user:
-                st.caption("結帳前請先在左側 Account 登入")
-            st.button("結帳", type="primary", on_click=do_checkout)
+                st.caption("Please log in (Account, left side) before checking out")
+            st.button("Checkout", type="primary", on_click=do_checkout)
 
-    # 商品列表
+    # Product list
     if not products:
-        st.info("目前沒有商品。" + ("請用上方「新增商品」加入。" if is_admin else ""))
+        st.info("No products yet." + (" Use \"Add product\" above to create some." if is_admin else ""))
     for p in products:
         with st.container(border=True):
             im, a, b = st.columns([2, 4, 2])
@@ -215,18 +215,18 @@ with shop:
                 im.markdown("<div style='font-size:48px;text-align:center'>✏️</div>", unsafe_allow_html=True)
             a.markdown(f"**{p['name']}**  \n{p['description'] or ''}")
             b.markdown(f"**${p['price']:.2f}**")
-            b.caption(f"有現貨（{p['quantity']}）" if p["in_stock"] else "缺貨")
-            b.button("加入購物車", key=f"add{p['id']}", disabled=not p["in_stock"],
+            b.caption(f"In stock ({p['quantity']})" if p["in_stock"] else "Out of stock")
+            b.button("Add to cart", key=f"add{p['id']}", disabled=not p["in_stock"],
                      on_click=add_to_cart, args=(p["id"], p["quantity"]))
             if is_admin:
-                with st.expander("編輯 / 刪除"):
-                    nq = st.number_input("庫存", min_value=0, value=int(p["quantity"]), key=f"q{p['id']}")
-                    npr = st.number_input("價格", min_value=0.0, value=float(p["price"]),
+                with st.expander("Edit / Delete"):
+                    nq = st.number_input("Stock", min_value=0, value=int(p["quantity"]), key=f"q{p['id']}")
+                    npr = st.number_input("Price", min_value=0.0, value=float(p["price"]),
                                           step=0.5, key=f"p{p['id']}")
-                    newpic = st.file_uploader("更換圖片", type=["png", "jpg", "jpeg", "webp"], key=f"img{p['id']}")
-                    rmpic = st.checkbox("移除圖片", key=f"rmimg{p['id']}") if p["image"] else False
+                    newpic = st.file_uploader("Replace image", type=["png", "jpg", "jpeg", "webp"], key=f"img{p['id']}")
+                    rmpic = st.checkbox("Remove image", key=f"rmimg{p['id']}") if p["image"] else False
                     e1, e2 = st.columns(2)
-                    if e1.button("儲存", key=f"s{p['id']}"):
+                    if e1.button("Save", key=f"s{p['id']}"):
                         img, err = load_image(newpic)
                         if err:
                             st.error(err)
@@ -237,15 +237,15 @@ with shop:
                             elif rmpic:
                                 store_db.set_image(p["id"], None)
                             st.rerun()
-                    if e2.button("刪除", key=f"d{p['id']}"):
+                    if e2.button("Delete", key=f"d{p['id']}"):
                         store_db.delete_product(p["id"])
                         st.rerun()
 
-# 輸入框必須放在欄位外面，才會固定在整個頁面最下方
-q = st.chat_input("問問商品、價格、庫存…")
+# The chat input must sit outside the columns so it stays pinned to the bottom of the page
+q = st.chat_input("Ask about products, prices, stock…")
 
 with chat:
-    st.subheader("💬 AI 購物助理")
+    st.subheader("💬 AI Shopping Assistant")
     if "history" not in st.session_state:
         st.session_state.history = []
     for m in st.session_state.history:
@@ -254,10 +254,10 @@ with chat:
         st.session_state.history.append({"role": "user", "content": q})
         st.chat_message("user").write(q)
         with st.chat_message("assistant"):
-            with st.spinner("查詢中…"):
+            with st.spinner("Looking it up…"):
                 try:
                     reply = chatbot.answer(st.session_state.history[-10:])
                 except Exception as e:
-                    reply = f"發生錯誤：{e}"
+                    reply = f"Something went wrong: {e}"
             st.write(reply)
         st.session_state.history.append({"role": "assistant", "content": reply})
