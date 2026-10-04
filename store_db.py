@@ -1,5 +1,5 @@
-"""資料庫層：讀取商店的 store.db（資料表名稱 product 或 products 都可以）。
-若你的商店已有資料庫（MySQL / PostgreSQL 等），只需改 get_conn() 與 SQL 欄位名稱。"""
+"""Database layer: reads the shop's store.db (the product table may be named product or products).
+If your shop uses another database (MySQL / PostgreSQL ...), only get_conn() and the SQL need to change."""
 import hashlib
 import hmac
 import os
@@ -12,7 +12,7 @@ STOP = {"do", "you", "have", "in", "stock", "a", "the", "any", "got", "is", "are
         "for", "me", "show", "i", "want", "need", "there", "some", "with", "and"}
 WANTED = [("quantity", "INTEGER NOT NULL DEFAULT 0"), ("category", "VARCHAR(50)"),
           ("color", "VARCHAR(30)"), ("description", "VARCHAR(300)"), ("image", "BLOB")]
-# 查詢給 AI 用的欄位（不含圖片，圖片是二進位資料，不能傳給 AI）
+# Columns returned to the AI (no image: it is binary data and cannot be sent to the AI)
 COLS = "id, name, price, quantity, category, color, description"
 
 
@@ -23,7 +23,7 @@ def get_conn():
 
 
 def table_name():
-    """自動判斷商品資料表叫 product 還是 products；都沒有就回傳 None。"""
+    """Detect whether the product table is called product or products; None if neither exists."""
     with get_conn() as c:
         names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for t in ("product", "products"):
@@ -33,7 +33,7 @@ def table_name():
 
 
 def ensure_schema():
-    """檢查資料庫：沒有商品資料表就建立一個空的；缺少欄位就自動補上。"""
+    """Create the product table if it is missing and add any missing columns."""
     with get_conn() as c:
         c.execute("CREATE TABLE IF NOT EXISTS shop_orders(id INTEGER PRIMARY KEY, "
                   "created_at TEXT, total REAL, items TEXT, username TEXT)")
@@ -63,7 +63,7 @@ def _row(r):
 
 
 def _word_match(token, text):
-    """整個單字比對（pen 不會誤中 pencil；pens 也能對到 pen）。"""
+    """Whole-word match (pen does not match pencil; pens still matches pen)."""
     if not token or not text:
         return False
     t = token.lower()
@@ -101,7 +101,7 @@ def get_product(product_id):
 
 
 def get_similar(product_id, limit=4):
-    """同類別、目前有庫存、價格最接近的商品。"""
+    """In-stock products from the same category, closest in price first."""
     p = get_product(product_id)
     if not p:
         return []
@@ -119,7 +119,7 @@ def list_products():
 
 
 def process_image(raw):
-    """把上傳的圖片縮小、轉成 JPEG（最長邊 600px），回傳 bytes。失敗時丟出例外。"""
+    """Shrink an uploaded image to JPEG (longest side 600px) and return bytes. Raises on failure."""
     import io
     from PIL import Image
     img = Image.open(io.BytesIO(raw))
@@ -146,8 +146,8 @@ def add_product(name, price, quantity=0, category=None, color=None, description=
 
 
 def import_products_csv(raw):
-    """批次匯入 CSV（欄位：name,price,quantity,category,color,description）。
-    名稱已存在的會略過。回傳 (新增數, 略過數, 錯誤清單)。"""
+    """Bulk import from CSV (columns: name,price,quantity,category,color,description).
+    Products whose name already exists are skipped. Returns (added, skipped, errors)."""
     import csv
     import io
     added, skipped, errors = 0, 0, []
@@ -156,7 +156,7 @@ def import_products_csv(raw):
         try:
             name = (row.get("name") or "").strip()
             if not name:
-                raise ValueError("缺少 name")
+                raise ValueError("name is missing")
             with get_conn() as c:
                 exists = c.execute(f"SELECT 1 FROM {table_name()} WHERE lower(name) = lower(?)", (name,)).fetchone()
             if exists:
@@ -166,12 +166,12 @@ def import_products_csv(raw):
                         row.get("category"), row.get("color"), row.get("description"))
             added += 1
         except Exception as e:
-            errors.append(f"第 {i} 列：{e}")
+            errors.append(f"Row {i}: {e}")
     return added, skipped, errors
 
 
 def set_image(product_id, image):
-    """image 為 bytes 代表更換圖片，None 代表移除圖片。"""
+    """bytes = replace the image, None = remove the image."""
     with get_conn() as c:
         c.execute(f"UPDATE {table_name()} SET image = ? WHERE id = ?", (image, product_id))
 
@@ -188,11 +188,11 @@ def delete_product(product_id):
 
 
 def checkout(cart, username=None):
-    """cart: {商品id: 數量}。庫存夠才成立，成立後扣庫存並記錄訂單。回傳 (成功與否, 訊息)。"""
+    """cart: {product_id: quantity}. Succeeds only if stock is enough; then deducts stock and records the order. Returns (ok, message)."""
     if not cart:
-        return False, "購物車是空的"
+        return False, "Your cart is empty"
     t = table_name()
-    conn = sqlite3.connect(DB_PATH, isolation_level=None)  # 手動控制交易
+    conn = sqlite3.connect(DB_PATH, isolation_level=None)  # manual transaction control
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -201,10 +201,10 @@ def checkout(cart, username=None):
             r = conn.execute(f"SELECT name, price, quantity FROM {t} WHERE id = ?", (pid,)).fetchone()
             if not r:
                 conn.execute("ROLLBACK")
-                return False, "有商品已下架，請重新整理頁面"
+                return False, "A product is no longer available. Please refresh the page"
             if r["quantity"] < qty:
                 conn.execute("ROLLBACK")
-                return False, f"{r['name']} 庫存不足（目前剩 {r['quantity']}）"
+                return False, f"Not enough stock for {r['name']} (only {r['quantity']} left)"
             total += r["price"] * qty
             lines.append(f"{r['name']} x{qty}")
         for pid, qty in cart.items():
@@ -212,7 +212,7 @@ def checkout(cart, username=None):
         conn.execute("INSERT INTO shop_orders(created_at, total, items, username) "
                      "VALUES (datetime('now'), ?, ?, ?)", (total, "; ".join(lines), username))
         conn.execute("COMMIT")
-        return True, f"訂單完成！合計 ${total:.2f}（{'、'.join(lines)}）"
+        return True, f"Order placed! Total ${total:.2f} ({', '.join(lines)})"
     except Exception:
         if conn.in_transaction:
             conn.execute("ROLLBACK")
@@ -230,33 +230,33 @@ def list_orders(limit=30, username=None):
         return [dict(r) for r in c.execute(sql, params)]
 
 
-# ---------------- 顧客帳號 ----------------
+# ---------------- Customer accounts ----------------
 def _hash(password, salt_hex):
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
                                bytes.fromhex(salt_hex), 200_000).hex()
 
 
 def create_user(username, password):
-    """建立顧客帳號。回傳 (成功與否, 訊息, 帳號名稱)。"""
+    """Create a customer account. Returns (ok, message, username)."""
     username = (username or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_]{3,30}", username):
-        return False, "Username 需為 3 到 30 個英文字母、數字或底線", None
+        return False, "Username must be 3-30 letters, numbers or underscores", None
     if username.lower() == "admin":
-        return False, "這個名稱已被保留，請換一個", None
+        return False, "This name is reserved. Please choose another", None
     if len(password or "") < 6:
-        return False, "密碼至少 6 個字元", None
+        return False, "Password must be at least 6 characters", None
     salt = secrets.token_hex(16)
     try:
         with get_conn() as c:
             c.execute("INSERT INTO shop_users(username, password_hash, salt, created_at) "
                       "VALUES (?,?,?, datetime('now'))", (username, _hash(password, salt), salt))
     except sqlite3.IntegrityError:
-        return False, "這個 Username 已經有人使用", None
-    return True, "帳號建立完成", username
+        return False, "This username is already taken", None
+    return True, "Account created", username
 
 
 def verify_user(username, password):
-    """帳號密碼正確回傳帳號名稱，否則回傳 None。"""
+    """Return the username if the password is correct, otherwise None."""
     with get_conn() as c:
         r = c.execute("SELECT username, password_hash, salt FROM shop_users WHERE username = ?",
                       ((username or "").strip(),)).fetchone()
