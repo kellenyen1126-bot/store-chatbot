@@ -24,13 +24,22 @@ if problem:
 
 # ---------- Cart (button callbacks run before the page redraws) ----------
 def add_to_cart(pid, stock):
+    """Add the quantity chosen on the product card (never more than the stock)."""
     cart = st.session_state.setdefault("cart", {})
-    if cart.get(pid, 0) < stock:
-        cart[pid] = cart.get(pid, 0) + 1
+    n = int(st.session_state.get(f"qty{pid}", 1))
+    cart[pid] = min(cart.get(pid, 0) + max(1, n), stock)
+
+
+def set_cart_qty(pid, stock):
+    """Called when the customer edits the quantity box in the cart."""
+    cart = st.session_state.setdefault("cart", {})
+    n = int(st.session_state.get(f"cq{pid}", 1))
+    cart[pid] = max(1, min(n, stock))
 
 
 def remove_from_cart(pid):
     st.session_state.get("cart", {}).pop(pid, None)
+    st.session_state.pop(f"cq{pid}", None)
 
 
 def do_checkout():
@@ -193,10 +202,14 @@ with shop:
             st.markdown("**🛒 Cart**")
             total = 0.0
             for p, n in lines:
-                c1, c2, c3 = st.columns([5, 2, 1])
-                c1.write(f"{p['name']} × {n}")
-                c2.write(f"${p['price'] * n:.2f}")
-                c3.button("✕", key=f"rm{p['id']}", on_click=remove_from_cart, args=(p["id"],))
+                st.session_state[f"cq{p['id']}"] = n  # keep the box in sync with the cart
+                c1, c2, c3, c4 = st.columns([4, 3, 2, 1])
+                c1.write(f"{p['name']}  \n${p['price']:.2f} each")
+                c2.number_input("Quantity", min_value=1, max_value=int(p["quantity"]), step=1,
+                                key=f"cq{p['id']}", label_visibility="collapsed",
+                                on_change=set_cart_qty, args=(p["id"], p["quantity"]))
+                c3.write(f"${p['price'] * n:.2f}")
+                c4.button("✕", key=f"rm{p['id']}", on_click=remove_from_cart, args=(p["id"],))
                 total += p["price"] * n
             st.markdown(f"**Total: ${total:.2f}**")
             if not ss.user:
@@ -216,6 +229,12 @@ with shop:
             a.markdown(f"**{p['name']}**  \n{p['description'] or ''}")
             b.markdown(f"**${p['price']:.2f}**")
             b.caption(f"In stock ({p['quantity']})" if p["in_stock"] else "Out of stock")
+            if p["in_stock"]:
+                qkey = f"qty{p['id']}"
+                maxq = int(p["quantity"])
+                if st.session_state.get(qkey, 1) > maxq:
+                    st.session_state[qkey] = maxq
+                b.number_input("Qty", min_value=1, max_value=maxq, step=1, key=qkey)
             b.button("Add to cart", key=f"add{p['id']}", disabled=not p["in_stock"],
                      on_click=add_to_cart, args=(p["id"], p["quantity"]))
             if is_admin:
