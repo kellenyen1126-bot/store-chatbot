@@ -1,7 +1,10 @@
 """資料庫層：讀取商店的 store.db（資料表名稱 product 或 products 都可以）。
 若你的商店已有資料庫（MySQL / PostgreSQL 等），只需改 get_conn() 與 SQL 欄位名稱。"""
+import hashlib
+import hmac
 import os
 import re
+import secrets
 import sqlite3
 
 DB_PATH = os.getenv("STORE_DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "store.db"))
@@ -31,7 +34,11 @@ def ensure_schema():
     """檢查資料庫：沒有商品資料表就建立一個空的；缺少欄位就自動補上。"""
     with get_conn() as c:
         c.execute("CREATE TABLE IF NOT EXISTS shop_orders(id INTEGER PRIMARY KEY, "
-                  "created_at TEXT, total REAL, items TEXT)")
+                  "created_at TEXT, total REAL, items TEXT, username TEXT)")
+        c.execute("CREATE TABLE IF NOT EXISTS shop_users(id INTEGER PRIMARY KEY, "
+                  "username TEXT UNIQUE COLLATE NOCASE, password_hash TEXT, salt TEXT, created_at TEXT)")
+        if "username" not in {r[1] for r in c.execute("PRAGMA table_info(shop_orders)")}:
+            c.execute("ALTER TABLE shop_orders ADD COLUMN username TEXT")
     t = table_name()
     if not t:
         with get_conn() as c:
@@ -117,7 +124,7 @@ def delete_product(product_id):
         c.execute(f"DELETE FROM {table_name()} WHERE id = ?", (product_id,))
 
 
-def checkout(cart):
+def checkout(cart, username=None):
     """cart: {商品id: 數量}。庫存夠才成立，成立後扣庫存並記錄訂單。回傳 (成功與否, 訊息)。"""
     if not cart:
         return False, "購物車是空的"
@@ -139,8 +146,8 @@ def checkout(cart):
             lines.append(f"{r['name']} x{qty}")
         for pid, qty in cart.items():
             conn.execute(f"UPDATE {t} SET quantity = quantity - ? WHERE id = ?", (qty, pid))
-        conn.execute("INSERT INTO shop_orders(created_at, total, items) VALUES (datetime('now'), ?, ?)",
-                     (total, "; ".join(lines)))
+        conn.execute("INSERT INTO shop_orders(created_at, total, items, username) "
+                     "VALUES (datetime('now'), ?, ?, ?)", (total, "; ".join(lines), username))
         conn.execute("COMMIT")
         return True, f"訂單完成！合計 ${total:.2f}（{'、'.join(lines)}）"
     except Exception:
@@ -151,7 +158,45 @@ def checkout(cart):
         conn.close()
 
 
-def list_orders(limit=30):
+def list_orders(limit=30, username=None):
+    sql, params = "SELECT * FROM shop_orders", []
+    if username:
+        sql += " WHERE username = ?"; params.append(username)
+    sql += " ORDER BY id DESC LIMIT ?"; params.append(limit)
     with get_conn() as c:
-        return [dict(r) for r in c.execute(
-            "SELECT * FROM shop_orders ORDER BY id DESC LIMIT ?", (limit,))]
+        return [dict(r) for r in c.execute(sql, params)]
+
+
+# ---------------- 顧客帳號 ----------------
+def _hash(password, salt_hex):
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                               bytes.fromhex(salt_hex), 200_000).hex()
+
+
+def create_user(username, password):
+    """建立顧客帳號。回傳 (成功與否, 訊息, 帳號名稱)。"""
+    username = (username or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_]{3,30}", username):
+        return False, "Username 需為 3 到 30 個英文字母、數字或底線", None
+    if username.lower() == "admin":
+        return False, "這個名稱已被保留，請換一個", None
+    if len(password or "") < 6:
+        return False, "密碼至少 6 個字元", None
+    salt = secrets.token_hex(16)
+    try:
+        with get_conn() as c:
+            c.execute("INSERT INTO shop_users(username, password_hash, salt, created_at) "
+                      "VALUES (?,?,?, datetime('now'))", (username, _hash(password, salt), salt))
+    except sqlite3.IntegrityError:
+        return False, "這個 Username 已經有人使用", None
+    return True, "帳號建立完成", username
+
+
+def verify_user(username, password):
+    """帳號密碼正確回傳帳號名稱，否則回傳 None。"""
+    with get_conn() as c:
+        r = c.execute("SELECT username, password_hash, salt FROM shop_users WHERE username = ?",
+                      ((username or "").strip(),)).fetchone()
+    if r and hmac.compare_digest(_hash(password or "", r["salt"]), r["password_hash"]):
+        return r["username"]
+    return None
