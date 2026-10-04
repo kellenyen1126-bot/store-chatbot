@@ -62,24 +62,36 @@ def _row(r):
     return d
 
 
+def _word_match(token, text):
+    """整個單字比對（pen 不會誤中 pencil；pens 也能對到 pen）。"""
+    if not token or not text:
+        return False
+    t = token.lower()
+    stem = t[:-1] if t.endswith("s") and len(t) > 3 else t
+    return re.search(rf"\b{re.escape(stem)}(?:s|es)?\b", str(text).lower()) is not None
+
+
 def search_products(query="", category=None, color=None, max_price=None,
                     in_stock_only=False, limit=6):
-    sql, params = f"SELECT {COLS} FROM {table_name()} WHERE 1=1", []
     tokens = [t for t in re.findall(r"\w+", (query or "").lower()) if t not in STOP]
-    for t in tokens:
-        sql += " AND (lower(name) LIKE ? OR lower(category) LIKE ? OR lower(color) LIKE ? OR lower(description) LIKE ?)"
-        params += [f"%{t}%"] * 4
-    if category:
-        sql += " AND lower(category) LIKE ?"; params.append(f"%{category.lower()}%")
-    if color:
-        sql += " AND lower(color) LIKE ?"; params.append(f"%{color.lower()}%")
-    if max_price is not None:
-        sql += " AND price <= ?"; params.append(max_price)
-    if in_stock_only:
-        sql += " AND quantity > 0"
-    sql += " ORDER BY quantity > 0 DESC, price LIMIT ?"; params.append(limit)
     with get_conn() as c:
-        return [_row(r) for r in c.execute(sql, params)]
+        rows = [_row(r) for r in c.execute(f"SELECT {COLS} FROM {table_name()}")]
+    out = []
+    for r in rows:
+        if not all(any(_word_match(t, r[f]) for f in ("name", "category", "color", "description"))
+                   for t in tokens):
+            continue
+        if category and not _word_match(category, r["category"]):
+            continue
+        if color and not _word_match(color, r["color"]):
+            continue
+        if max_price is not None and r["price"] > max_price:
+            continue
+        if in_stock_only and not r["in_stock"]:
+            continue
+        out.append(r)
+    out.sort(key=lambda r: (not r["in_stock"], r["price"]))
+    return out[:limit]
 
 
 def get_product(product_id):
