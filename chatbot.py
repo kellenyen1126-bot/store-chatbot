@@ -1,4 +1,4 @@
-"""AI 客服：Groq 上的模型透過 tool calling 查詢資料庫，再用真實資料回答。"""
+"""AI shop assistant: a Groq-hosted model calls tools to query the database, then answers from real data."""
 import json
 import os
 from openai import OpenAI
@@ -14,8 +14,7 @@ SYSTEM = (
     "category or product type that did not come from a tool result. "
     "Report real price and quantity. When asked for similar items, call get_similar_products "
     "and only suggest items that are in stock. Keep answers short. "
-    "Reply in the same language as the customer's latest message (Traditional Chinese if they write Chinese); "
-    "if the language is unclear, reply in English."
+    "Always reply in English."
 )
 TOOLS = [
     {"type": "function", "function": {
@@ -36,7 +35,7 @@ TOOLS = [
 def _client():
     key = os.getenv("GROQ_API_KEY")
     if not key:
-        raise RuntimeError("找不到 GROQ_API_KEY（請放在 .env 或 .streamlit/secrets.toml）")
+        raise RuntimeError("GROQ_API_KEY not found (set it in .env or in Streamlit Secrets)")
     return OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
 
 
@@ -49,10 +48,10 @@ def _run_tool(name, args):
 
 
 def answer(history):
-    """history: [{'role','content'}, ...]，回傳 AI 回覆文字。"""
+    """history: [{'role','content'}, ...]. Returns the assistant reply text."""
     client = _client()
     msgs = [{"role": "system", "content": SYSTEM}] + history
-    for _ in range(4):  # 最多 4 輪工具呼叫
+    for _ in range(4):  # at most 4 rounds of tool calls
         resp = client.chat.completions.create(model=MODEL, messages=msgs, tools=TOOLS)
         m = resp.choices[0].message
         if not m.tool_calls:
@@ -62,4 +61,4 @@ def answer(history):
             result = _run_tool(tc.function.name, json.loads(tc.function.arguments or "{}"))
             msgs.append({"role": "tool", "tool_call_id": tc.id,
                          "content": json.dumps(result, ensure_ascii=False)})
-    return "抱歉，我暫時無法完成查詢，請再試一次。"
+    return "Sorry, I could not complete the lookup. Please try again."
