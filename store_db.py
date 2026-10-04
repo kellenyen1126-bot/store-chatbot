@@ -133,6 +133,31 @@ def add_product(name, price, quantity=0, category=None, color=None, description=
                    (description or "").strip() or None, image))
 
 
+def import_products_csv(raw):
+    """批次匯入 CSV（欄位：name,price,quantity,category,color,description）。
+    名稱已存在的會略過。回傳 (新增數, 略過數, 錯誤清單)。"""
+    import csv
+    import io
+    added, skipped, errors = 0, 0, []
+    reader = csv.DictReader(io.StringIO(raw.decode("utf-8-sig")))
+    for i, row in enumerate(reader, start=2):
+        try:
+            name = (row.get("name") or "").strip()
+            if not name:
+                raise ValueError("缺少 name")
+            with get_conn() as c:
+                exists = c.execute(f"SELECT 1 FROM {table_name()} WHERE lower(name) = lower(?)", (name,)).fetchone()
+            if exists:
+                skipped += 1
+                continue
+            add_product(name, float(row.get("price") or 0), int(float(row.get("quantity") or 0)),
+                        row.get("category"), row.get("color"), row.get("description"))
+            added += 1
+        except Exception as e:
+            errors.append(f"第 {i} 列：{e}")
+    return added, skipped, errors
+
+
 def set_image(product_id, image):
     """image 為 bytes 代表更換圖片，None 代表移除圖片。"""
     with get_conn() as c:
